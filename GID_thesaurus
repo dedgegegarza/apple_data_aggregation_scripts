@@ -1,0 +1,632 @@
+#####################################################################################################
+#                                                                                                   #
+# R-Script GID Thesaurus                                                                           #
+#                                                                                                   #
+#####################################################################################################
+
+# This routine takes varieties, names or ids an creates a GID thesaurus for the different plant material available for a CROP-base database
+# This routine is part of a multiple collaboration of different entities around the world 
+# working with phenotypic and genotypic data from different frutal trees lead by the 
+# RosBREED Project.
+# The current database is a collective effort lead by Dr Craig Hardner to produce a database 
+# with all the information provided by different collaborators to be comparared and analysed in conjunction.
+# The R-script was coded by Miguel Villamil Castro.
+# This routine is divided in sections. Each section is highlighted some sections might need user input.
+# When user input is required please follow the instructiones in the annotations.
+
+#####################################################################################################
+#                                                                                                   #
+# Defining characteristics of the Process File - THIS SECTION REQUIRES USER INPUT                   #
+#                                                                                                   #
+#####################################################################################################
+# This section defines characteristics for the GID thesaurus
+
+#########################################################################
+####                    USER INPUT REQUIRED                          ####
+####                                                                 ####
+#### Please fill the information below with the relevant information ####
+#########################################################################
+
+# Fill with the crop of interest in the dataset.
+CROP <- ""
+# Fill with the data type of interest in the dataset.
+DATATYPE <- ""
+# If the dataset only contains a list of ids with no data change NA to "list"
+LISTED <- NA #"list" #or NA
+# This refers to the contributor of the dataset. Please use abreviations.
+contributor <- ""
+# Fill with the original file name of the original dataset
+INPUTFILENAME <- ""
+# Fill with the ROOT folder where the files are stored in your local computer
+ROOTFolder <- ""
+# Confidentiality of the Dataset
+CONFIDENTIALITY <- "public" #change to "public" if the data is available to any collaborator by default is "private"
+
+#########################################################################
+####                    USER INPUT FINISHED                          ####
+#########################################################################
+## Check if datafile is only a list of available data
+if(!is.na(LISTED)){
+  DATAFILE <- gsub("Data", "List", DATATYPE)
+}else{
+  DATAFILE <- DATATYPE
+}
+# Fill with  the name of the SNP_name Column in the dataset
+TODAY <- format(Sys.Date(), "%Y%m%d")
+
+#####################################################################################################
+#                                                                                                   #
+# Loading R-packages and Libraries required                                                         #
+#                                                                                                   #
+#####################################################################################################
+library(plyr)
+library(reshape2)
+library(readr)
+library(DBI)
+library(stringr)
+library(stringi)
+library(rentrez)
+library(gsubfn)
+library(readxl)
+
+#####################################################################################################
+#                                                                                                   #
+# Loading files                                                                                     #
+#                                                                                                   #
+#####################################################################################################
+## Constructs the folder path
+if(ROOTFolder == Rdrive){
+  folderpath <- paste(ROOTFolder , CROP, DATATYPE, sep = "/")}else{
+  folderpath <- paste(ROOTFolder , CROP, "2_DB_input_files/1_Raw_files", DATATYPE, sep = "/")
+}
+## Set the current working directory to the desired directory
+setwd(folderpath)
+## Read raw file into a R data frame object
+dataset_file <- read.csv(INPUTFILENAME, stringsAsFactors=FALSE)
+## Removing all repeated entries
+dataset_file <- unique(dataset_file)
+
+## Constructs the folder path
+if(ROOTFolder == Rdrive){
+  folderpath <- paste(ROOTFolder , CROP, "2_thesauri/GID_thesaurus", sep = "/")}else{
+folderpath <- paste(ROOTFolder , CROP, "2_thesauri/GID_thesaurus", sep = "/")
+}
+## Set the current working directory to the desired directory
+setwd(folderpath)
+DICTFILE <- paste(CROP, "_GID_Thesaurus.csv", sep = "")
+GID_Thesaurus <- read.csv(DICTFILE, stringsAsFactors=FALSE)
+#GID_Thesaurus <- GID_Thesaurus[!GID_Thesaurus$file_name == "ExtractFBO3_corrPH-CD_VF_for Craig Hardner_12-12-2016",]
+#####################################################################################################
+#                                                                                                   #
+# Processing id.Raw Column to raw.Plain                                                             #
+#                                                                                                   #
+#####################################################################################################
+# id.Raw in  most cases is the same that id.Original except when we have 2 varieties that are named the same,
+# but they represent distintive genotypes. (eg. FruitBreedomics)
+## Extract the Raw ID names from the table to be process as charcaters.
+dataset_file$raw.Plain <- as.character(dataset_file$id.Raw)
+## Remove apostrophes by introducting a ""
+dataset_file$raw.Plain <- gsub("'", "", dataset_file$raw.Plain)
+## Remove puntuation characters out of the ID Column by introducing a "_". 
+dataset_file$raw.Plain <- gsub("[[:punct:]]", "_", dataset_file$raw.Plain)
+## Replace spaces <" "> by introoducing a "_"
+dataset_file$raw.Plain <- gsub(" ", "_", dataset_file$raw.Plain)
+## Remove accented characters for plain characters
+dataset_file$raw.Plain <- iconv(dataset_file$raw.Plain, from = "utf-8", to='ASCII//TRANSLIT')
+## Remove multiple "_" by a single "_"
+dataset_file$raw.Plain <- gsub("_{2,}", "_", dataset_file$raw.Plain)
+## Remove "_" at the end of the Name
+dataset_file$raw.Plain <- gsub("[_]$", "", dataset_file$raw.Plain)
+## Remove "_" at the begining of the Name
+dataset_file$raw.Plain <- gsub("^[_]", "", dataset_file$raw.Plain)
+## Change all letters to lowercases.
+dataset_file$raw.Plain <- tolower(dataset_file$raw.Plain)
+
+#####################################################################################################
+#                                                                                                   #
+# Processing id.Syn Column to syn.Plain                                                             #
+#                                                                                                   #
+#####################################################################################################
+## Checking if the dataset included and id.Syn column
+if("id.Syn" %in% colnames(dataset_file)){
+  if(!"syn.Plain" %in% colnames(dataset_file)){
+  # id.Syn in  most cases is the same that id.Original except when we have 2 varieties that are named the same,
+  # but they represent distintive genotypes. (eg. FruitBreedomics)
+  ## Extract the Raw ID names from the table to be process as charcaters.
+  dataset_file$syn.Plain <- as.character(dataset_file$id.Syn)
+  ## Remove apostrophes by introducting a ""
+  dataset_file$syn.Plain <- gsub("'", "", dataset_file$syn.Plain)
+  ## Remove puntuation characters out of the syn.Plain by introducing a "_". 
+  dataset_file$syn.Plain <- gsub("[[:punct:]]", "_", dataset_file$syn.Plain)
+  ## Replace spaces <" "> by introoducing a "_"
+  dataset_file$syn.Plain <- gsub(" ", "_", dataset_file$syn.Plain)
+  ## Remove accented characters for plain characters
+  dataset_file$syn.Plain <- iconv(dataset_file$syn.Plain, from = "utf-8", to='ASCII//TRANSLIT')
+  ## Remove multiple "_" by a single "_"
+  dataset_file$syn.Plain <- gsub("_{2,}", "_", dataset_file$syn.Plain)
+  ## Remove "_" at the end of the Name
+  dataset_file$syn.Plain <- gsub("[_]$", "", dataset_file$syn.Plain)
+  ## Remove "_" at the begining of the Name
+  dataset_file$syn.Plain <- gsub("^[_]", "", dataset_file$syn.Plain)
+  ## Change all letters to lowercases.
+  dataset_file$syn.Plain <- tolower(dataset_file$syn.Plain)
+  
+  ## Checking for unique syn.Plain
+  dataset_file$syn.Raw <- paste(dataset_file$syn.Plain,tolower(dataset_file$gid.Raw), sep = "_")
+  helper <- unique(dataset_file[,names(dataset_file) %in% c("syn.Plain","syn.Raw")])
+  helper$samesyn.Plain <- duplicated(helper$syn.Plain) | duplicated(helper$syn.Plain, fromLast = TRUE)
+  helper <- helper[helper$samesyn.Plain == "TRUE",]
+  if(nrow(helper) > 0){
+  dataset_file$syn.Plain[dataset_file$syn.Raw %in% helper$syn.Raw] <- dataset_file$syn.Raw[dataset_file$syn.Raw %in% helper$syn.Raw]
+  }
+  #dataset_file$syn.Raw <- NULL
+  }
+}
+
+#####################################################################################################
+#                                                                                                   #
+# Adding Data Type and confidentiality of the data details                                          #
+#                                                                                                   #
+#####################################################################################################
+## Check if datafile is only a list of available data
+if(!is.na(LISTED)){
+  dataset_file$data_type <- DATAFILE
+}else{
+  dataset_file$data_type <- DATATYPE
+}
+## adds confidentiality status
+dataset_file$conf <- CONFIDENTIALITY
+
+#####################################################################################################
+#                                                                                                   #
+# Exploring GID_Thesaurus for complete match of id.Plain with new id.Plain to pid_ID               #
+#                                                                                                   #
+#####################################################################################################
+# id.Raw in  most cases is the same that id.Original except when we have 2 varieties that are named the same,
+# but they represent distintive genotypes. (eg. FruitBreedomics)
+## Extract the Raw ID names from the table to be process as charcaters.
+GID_Thesaurus$raw.Plain <- as.character(GID_Thesaurus$id.Raw)
+## Remove apostrophes by introducting a ""
+GID_Thesaurus$raw.Plain <- gsub("'", "", GID_Thesaurus$raw.Plain)
+## Remove puntuation characters out of the ID Column by introducing a "_". 
+GID_Thesaurus$raw.Plain <- gsub("[[:punct:]]", "_", GID_Thesaurus$raw.Plain)
+## Replace spaces <" "> by introoducing a "_"
+GID_Thesaurus$raw.Plain <- gsub(" ", "_", GID_Thesaurus$raw.Plain)
+## Remove accented characters for plain characters
+GID_Thesaurus$raw.Plain <- iconv(GID_Thesaurus$raw.Plain, to='ASCII//TRANSLIT')
+## Remove multiple "_" by a single "_"
+GID_Thesaurus$raw.Plain <- gsub("_{2,}", "_", GID_Thesaurus$raw.Plain)
+## Remove "_" at the end of the Name
+GID_Thesaurus$raw.Plain <- gsub("[_]$", "", GID_Thesaurus$raw.Plain)
+## Remove "_" at the begining of the Name
+GID_Thesaurus$raw.Plain <- gsub("^[_]", "", GID_Thesaurus$raw.Plain)
+## Change all letters to lowercases.
+GID_Thesaurus$raw.Plain <- tolower(GID_Thesaurus$raw.Plain)
+
+## Desired information from the thesaurus pid_ID
+dataset_file <- merge(dataset_file, GID_Thesaurus[,c("pid_ID", "raw.Plain")], by = "raw.Plain", all.x = TRUE)
+
+## Fill in the pid_ID based on accession_ID, if this information is available
+if("accession_ID" %in% colnames(dataset_file)){
+  helper <- unique(dataset_file[dataset_file$accession_ID %in% GID_Thesaurus$accession_ID,])
+  helper <- helper[!is.na(helper$accession_ID),]
+  GIDpidsByACCN <- unique(GID_Thesaurus[,colnames(GID_Thesaurus) %in% c("pid_ID","accession_ID")])
+  GIDpidsByACCN <- GIDpidsByACCN[!is.na(GIDpidsByACCN$accession_ID),]
+  for(ID in helper$accession_ID){
+    if(length(GIDpidsByACCN$pid_ID[GIDpidsByACCN$accession_ID==ID])==1){
+      dataset_file$pid_ID[dataset_file$accession_ID == ID] <- 
+        GIDpidsByACCN$pid_ID[GIDpidsByACCN$accession_ID == ID]
+    }
+  }
+}
+dataset_file <- unique(dataset_file)
+rm(GIDpidsByACCN)
+rm(helper)
+rm(ID)
+
+## look for raw.Plain entries in the thesaurus
+helper <- merge(dataset_file[is.na(dataset_file$pid_ID),!colnames(dataset_file) %in% "pid_ID"], GID_Thesaurus[,c("pid_ID", "id.Plain")], by.x = "raw.Plain", by.y = "id.Plain", all.x = TRUE)
+temp <- dataset_file[!is.na(dataset_file$pid_ID),]
+helper$id.Plain[!is.na(helper$pid_ID)] <- helper$raw.Plain[!is.na(helper$pid_ID)]
+if("syn.Plain" %in% colnames(helper)){
+  helper$syn.Plain[!is.na(helper$pid_ID)] <- paste(helper$syn.Plain[!is.na(helper$pid_ID)], tolower(helper$gid.Raw[!is.na(helper$pid_ID)]), sep = "_")
+}
+if(nrow(temp) > 0){
+  dataset_file <- rbind(temp, helper)
+  dataset_file <- unique(dataset_file)
+}
+
+#####################################################################################################
+#                                                                                                   #
+# Exploring GID_Thesaurus for partial match of id.Raw using id.Plain                        #
+#                                                                                                   #
+#####################################################################################################
+# Subset from SID_Thesaurus the sid.Plain.Formtat to find partial matches
+## Creates a table when a unique match is found.
+partialMatch <- as.data.frame(dataset_file$id.Plain[is.na(dataset_file$pid_ID)], stringsAsFactors = FALSE)
+partialMatch <- unique(partialMatch)
+colnames(partialMatch) <- "id.Plain"
+partialMatch$num_char <- sapply(partialMatch$id.Plain, function(x) nchar(x))
+## Creates a list of unique id.Plain pid IDs to search
+PID_PartMatch <- unique(GID_Thesaurus$id.Plain)
+new_plains <- unique(dataset_file$id.Plain[is.na(dataset_file$pid_ID)])
+helper <- list()
+# Comparing Routine
+if(length(PID_PartMatch) > 0){
+  if(length(new_plains) > 0){
+    ## looks for matches at the end of the sid.Plain, when the match is unique is recorded
+    for(name in new_plains){
+      id.Plain <- name
+      while(nchar(name) > 3){
+        matchingRule <- endsWith(PID_PartMatch, name)
+        temporal <- PID_PartMatch[matchingRule]
+        if(length(temporal) == 1){
+          temp <- as.data.frame(id.Plain, stringsAsFactors = FALSE)
+          temp$match.End <- temporal
+          temp$hit.End <- nchar(name)/nchar(temporal)
+          helper <- rbind(temp, helper)
+          name <- "xx"
+        }
+        name <- substr(name, 2, nchar(name))  
+      }
+    }
+    ## Updates the partial match table
+    if(length(helper) > 0){
+      partialMatch <- merge(helper, partialMatch, by.x = "id.Plain", all = TRUE)
+    }
+    helper <- list()
+    ## looks for matches at the start of the sid.Plain, when the match is unique is recorded
+    for(name in new_plains){
+      id.Plain <- name
+      while(nchar(name) > 3){
+        matchingRule <- startsWith(PID_PartMatch, name)
+        temporal <- PID_PartMatch[matchingRule]
+        if(length(temporal) == 1){
+          temp <- as.data.frame(id.Plain, stringsAsFactors = FALSE)
+          temp$match.Start <- temporal
+          temp$hit.Start <- nchar(name)/nchar(temporal)
+          helper <- rbind(temp, helper)
+          name <- "xx"
+        }
+        name <- substr(name, 1, nchar(name)-1)
+      }
+    }
+  ## Updates the partial match table
+  if(length(helper) > 0){
+    partialMatch <- merge(helper, partialMatch, by.x = "id.Plain", all = TRUE)
+  }
+  partialMatch <- unique(partialMatch)
+  }
+  
+  # Check and update changes.
+  if(nrow(partialMatch) > 0){
+    
+    partialMatch$id.Match <- NA
+    
+    # First Check: Remove all names without a match
+    entries <- is.na(partialMatch$match.Start) & is.na(partialMatch$match.End)
+    partialMatch <- partialMatch[!entries,]
+    
+    # Second Check: match.Start & match.End match
+    partialMatch$match.End[is.na(partialMatch$match.End)] <- "[NA]"
+    partialMatch$match.Start[is.na(partialMatch$match.Start)] <- "[NA]"
+    entries <- partialMatch$match.Start == partialMatch$match.End
+    
+    partialMatch$id.Match[entries] <- partialMatch$match.Start[entries]
+    
+    # Third Check: id.Plain fully matches match.Start or match.End
+    # (If more than one match found for the id.Plain, and NA value introduced by the matching routine above)
+    entries <- is.na(partialMatch$id.Match)
+    semiMatch <- partialMatch[entries,]
+    semiMatch$id.Match <- ifelse(semiMatch$id.Plain == semiMatch$match.End, semiMatch$match.End,
+                                 ifelse(semiMatch$id.Plain == semiMatch$match.Start, semiMatch$match.Start,
+                                        NA))
+    partialMatch <- rbind(partialMatch[!entries,],semiMatch)
+    
+        ## Merging with GID_Thesaurus info
+    partialMatch <- merge(partialMatch[,c("id.Plain", "num_char", "id.Match", "match.Start", "hit.Start", "match.End", "hit.End")], 
+                          unique(GID_Thesaurus[1:3]), by.x = "id.Match", by.y = "id.Plain", all.x = TRUE)
+    partialMatch <- unique(partialMatch)
+    
+    entries <- !is.na(partialMatch$pid_ID)
+    partialMatch <- partialMatch[entries,]
+  }
+
+gc()
+
+for(j in partialMatch$id.Plain){
+  print(format(round(which(partialMatch$id.Plain == j)/nrow(partialMatch)*100,2),nsmall=1))
+  dataset_file$pid_ID[which(dataset_file$id.Plain == j)] <- partialMatch$pid_ID[which(partialMatch$id.Plain == j)]
+}
+}
+
+infotest <- which(colnames(dataset_file) %in% "id.Syn")
+if(length(infotest) >0){
+  partialMatchSyn <- as.data.frame(dataset_file$syn.Plain[is.na(dataset_file$pid_ID)], stringsAsFactors = FALSE)
+  partialMatchSyn <- unique(partialMatchSyn)
+  colnames(partialMatchSyn) <- "id.Plain"
+  partialMatchSyn$num_char <- sapply(partialMatchSyn$id.Plain, function(x) nchar(x))
+  ## Creates a list of unique id.Plain pid IDs to search
+  PID_PartMatch <- unique(GID_Thesaurus$id.Plain)
+  new_plains <- unique(dataset_file$syn.Plain[is.na(dataset_file$pid_ID)])
+  helper <- list()
+  # Comparing Routine
+  if(length(PID_PartMatch) > 0){
+    if(length(new_plains) > 0){
+      ## looks for matches at the end of the sid.Plain, when the match is unique is recorded
+      for(name in new_plains){
+        id.Plain <- name
+        while(nchar(name) > 3){
+          matchingRule <- endsWith(PID_PartMatch, name)
+          temporal <- PID_PartMatch[matchingRule]
+          if(length(temporal) == 1){
+            temp <- as.data.frame(id.Plain, stringsAsFactors = FALSE)
+            temp$match.End <- temporal
+            temp$hit.End <- nchar(name)/nchar(temporal)
+            helper <- rbind(temp, helper)
+            name <- "xx"
+          }
+          name <- substr(name, 2, nchar(name))  
+        }
+      }
+      ## Updates the partial match table
+      if(length(helper) > 0){
+        partialMatchSyn <- merge(helper, partialMatchSyn, by.x = "id.Plain", all = TRUE)
+      }
+      helper <- list()
+      ## looks for matches at the start of the sid.Plain, when the match is unique is recorded
+      for(name in new_plains){
+        id.Plain <- name
+        while(nchar(name) > 3){
+          matchingRule <- startsWith(PID_PartMatch, name)
+          temporal <- PID_PartMatch[matchingRule]
+          if(length(temporal) == 1){
+            temp <- as.data.frame(id.Plain, stringsAsFactors = FALSE)
+            temp$match.Start <- temporal
+            temp$hit.Start <- nchar(name)/nchar(temporal)
+            helper <- rbind(temp, helper)
+            name <- "xx"
+          }
+          name <- substr(name, 1, nchar(name)-1)
+        }
+      }
+        ## Updates the partial match table
+    if(length(helper) > 0){
+      partialMatchSyn <- merge(helper, partialMatchSyn, by.x = "id.Plain", all = TRUE)
+    }
+    partialMatchSyn <- unique(partialMatchSyn)
+    }
+    
+    # Check and update changes.
+    if(nrow(partialMatchSyn) > 0){
+      
+      partialMatchSyn$id.Match <- NA
+      
+      # First Check: Remove all names without a match
+      entries <- is.na(partialMatchSyn$match.Start) & is.na(partialMatchSyn$match.End)
+      partialMatchSyn <- partialMatchSyn[!entries,]
+      
+      # Second Check: match.Start & match.End match
+      partialMatchSyn$match.End[is.na(partialMatchSyn$match.End)] <- "[NA]"
+      partialMatchSyn$match.Start[is.na(partialMatchSyn$match.Start)] <- "[NA]"
+      entries <- partialMatchSyn$match.Start == partialMatchSyn$match.End
+      
+      partialMatchSyn$id.Match[entries] <- partialMatchSyn$match.Start[entries]
+      
+      # Third Check: id.Plain fully matches match.Start or match.End
+      # (If more than one match found for the id.Plain, and NA value introduced by the matching routine above)
+      entries <- is.na(partialMatchSyn$id.Match)
+      semiMatch <- partialMatchSyn[entries,]
+      semiMatch$id.Match <- ifelse(semiMatch$id.Plain == semiMatch$match.End, semiMatch$match.End,
+                                   ifelse(semiMatch$id.Plain == semiMatch$match.Start, semiMatch$match.Start,
+                                          NA))
+      partialMatchSyn <- rbind(partialMatchSyn[!entries,],semiMatch)
+      
+      ## Merging with GID_Thesaurus info
+      partialMatchSyn <- merge(partialMatchSyn[,c("id.Plain", "num_char", "id.Match", "match.Start", "hit.Start", "match.End", "hit.End")], 
+                            unique(GID_Thesaurus[1:3]), by.x = "id.Match", by.y = "id.Plain", all.x = TRUE)
+      partialMatchSyn <- unique(partialMatchSyn)
+      
+      entries <- !is.na(partialMatchSyn$pid_ID)
+      partialMatchSyn <- partialMatchSyn[entries,]
+    }
+  gc()
+  
+  for(j in partialMatchSyn$id.Plain){
+    print(format(round(which(partialMatchSyn$id.Plain == j)/nrow(partialMatchSyn)*100,2),nsmall=1))
+    dataset_file$pid_ID[which(dataset_file$syn.Plain == j)] <- partialMatchSyn$pid_ID[which(partialMatchSyn$id.Plain == j)]
+    partialMatch <- rbind(partialMatch,partialMatchSyn)
+  }
+  }
+}
+
+## For all entries without a matching pid_ID make id.Plain the pid_ID
+dataset_file$pid_ID[is.na(dataset_file$pid_ID)] <- dataset_file$id.Plain[is.na(dataset_file$pid_ID)]
+
+#####################################################################################################
+#                                                                                                   #
+# Manual Addition of id.RAW ID information                                                          #
+#                                                                                                   #
+#####################################################################################################
+
+#################################################################################################
+#### IMPORTANT: USER needs to use this table to make manual changes in the following sections ####
+##################################################################################################
+## Updating GID and pid
+## example: Updating goldendel pid_ID
+#example: dataset_file$pid_ID[dataset_file$id.Plain == "goldendel"] <- "Golden_Delicious"
+
+#####################################################################################################
+#                                                                                                   #
+# Using Know Synonimous Names/Ids                                                                   #
+#                                                                                                   #
+#####################################################################################################
+
+infotest <- which(colnames(dataset_file) %in% "id.Syn")
+colSelected <- c("id.Raw", "raw.Plain", "gid.Raw", colnames(GID_Thesaurus))
+if(length(infotest) > 0){
+  # Selecting columns for GID_Thesaurus base on id.Plain
+  helper <- dataset_file[,colnames(dataset_file) %in% colSelected]
+  # Removing id.Plain and replacing it with syn.Plain
+  temp <- dataset_file[,!colnames(dataset_file) %in% c("id.Plain", "id.Original")]
+  # Relabeling syn.Plain
+  colnames(temp)[which(colnames(temp) == "syn.Plain")] <- "id.Plain"
+  # Relabeling id.Syn
+  colnames(temp)[which(colnames(temp) == "id.Syn")] <- "id.Original"
+  # Relabeling id.Raw
+  #colnames(temp)[which(colnames(temp) == "syn.Raw")] <- "id.Raw"
+  # Selecting columns for GID_Thesaurus base on syn.Plain
+  temp <-temp[,colnames(temp) %in% colSelected]
+  temp$data_type <- gsub("Data", "List", temp$data_type)
+  # binding information
+  dataset_file <- rbind(helper, temp)
+  dataset_file <- unique(dataset_file)
+}
+
+## Checking for unique id.Plain
+dataset_file$samePlain <- duplicated(dataset_file$id.Plain) | duplicated(dataset_file$id.Plain, fromLast = TRUE)
+## Use this next script as a check. If the pid_IDs are modified here, one should review/edit the id.Raw file
+for(i in unique(dataset_file$id.Plain[dataset_file$samePlain])){
+  infotest <- unique(dataset_file$pid_ID[which(dataset_file$id.Plain == i)])
+  if(length(infotest) > 1){
+    print(i)
+    print(infotest)
+  }
+}
+
+#####################################################################################################
+#                                                                                                   #
+# Generating GID field                                                                              #
+#                                                                                                   #
+#####################################################################################################
+
+infotest <- which(colnames(dataset_file) %in% "gid.Raw")
+if(length(infotest) > 0){
+  # Assignating gid.Raw to GID
+  dataset_file$GID <- dataset_file$gid.Raw
+}else{
+  ## Desired information from the thesaurus pid_ID
+  dataset_file <- merge(dataset_file, GID_Thesaurus[,c("GID", "id.Plain")], by = "id.Plain", all.x = TRUE)
+  if(any(is.na(dataset_file$GID))){
+    temp <- dataset_file[!is.na(dataset_file$GID),]
+    helper <- dataset_file[is.na(dataset_file$GID), !colnames(dataset_file) %in% "GID"]
+    helper <- merge(helper, GID_Thesaurus[,c("GID", "pid_ID")], by = "pid_ID", all.x = TRUE)
+    dataset_file <- rbind(temp, helper)
+  }
+  dataset_file$GID[is.na(dataset_file$GID)] <- dataset_file$pid_ID[is.na(dataset_file$GID)]
+  dataset_file <- unique(dataset_file)
+}
+
+#####################################################################################################
+#                                                                                                   #
+# Manual Addition of GID information                                                          #
+#                                                                                                   #
+#####################################################################################################
+
+#################################################################################################
+#### IMPORTANT: USER needs to use this table to make manual changes in the following sections ####
+##################################################################################################
+## Updating GID and pid
+
+
+## Checking for unique pid_Id
+dataset_file$samePID <- duplicated(dataset_file$pid_ID) | duplicated(dataset_file$pid_ID, fromLast = TRUE)
+## use to see if any pid_IDs have been linked to more than one GID
+#for(i in unique(dataset_file$pid_ID[dataset_file$samePID])){
+#  infotest <- unique(dataset_file$GID[which(dataset_file$pid_ID == i)])
+#  if(length(infotest) >1){
+#    print(i)
+#    print(infotest)
+#  }
+#}
+
+## Use this next script as a check. Warning! Should see no results here. If so, modify pid_ID manually
+## and edit id.Plain in id.Raw file.
+for(i in unique(dataset_file$pid_ID[dataset_file$samePID])){
+  infotest <- unique(dataset_file$GID[which(dataset_file$pid_ID == i)])
+  if(length(infotest) > 1){
+    print(i)
+    print(infotest)
+    #dataset_file$id.Plain[which(dataset_file$pid_ID == i)] <- dataset_file$raw.Plain[which(dataset_file$pid_ID == i)]
+    #dataset_file$pid_ID[which(dataset_file$pid_ID == i)] <- paste(dataset_file$pid_ID[which(dataset_file$pid_ID == i)], dataset_file$GID[which(dataset_file$pid_ID == i)], sep = "_")
+    #if((dataset_file$pid_ID[which(dataset_file$pid_ID == i)]) != (dataset_file$GID[which(dataset_file$pid_ID == i)])){
+    #  
+    #}
+  }
+}
+
+#####################################################################################################
+#                                                                                                   #
+# Consolidating and Updating GID Thesaurus                                                         #
+#                                                                                                   #
+#####################################################################################################
+# Reodering dataset_file
+currentname <- vector()
+for(i in colnames(GID_Thesaurus)){
+  entries <- which(colnames(dataset_file) == i)
+  currentname <- append(currentname, entries)
+}
+## Adding new entries to GID Thesaurus
+GID_Thesaurus <- rbind(GID_Thesaurus,dataset_file[,currentname])
+## Order new thesaurus alphabetically by id.Plain
+sorted <- order(GID_Thesaurus$pid_ID)
+GID_Thesaurus <- GID_Thesaurus[sorted,]
+## Removing double entries
+GID_Thesaurus <- unique(GID_Thesaurus)
+
+## Checking for unique pid_Id after adding new entries to the GID
+helper <- GID_Thesaurus
+helper$samePID <- duplicated(helper$pid_ID) | duplicated(helper$pid_ID, fromLast = TRUE)
+## use to see if any pid_IDs have been linked to more than one GID
+## Warning! Should see no results for this next script
+for(i in unique(helper$pid_ID[helper$samePID])){
+  infotest <- unique(helper$GID[which(helper$pid_ID == i)])
+  if(length(infotest) >1){
+    print(i)
+    print(infotest)
+  }
+}
+
+#####################################################################################################
+#                                                                                                   #
+# Updating Data Type in all entries                                                                 #
+#                                                                                                   #
+#####################################################################################################
+entries <- which(GID_Thesaurus$contrib == contributor & GID_Thesaurus$data_type == DATAFILE & GID_Thesaurus$file_name != unique(dataset_file$file_name))
+if(length(entries) > 0){
+  GID_Thesaurus$data_type[entries] <- gsub("Data", "Archive", DATAFILE)
+}
+
+#####################################################################################################
+#                                                                                                   #
+# Saving Formated Tables in CSV files                                                               #
+#                                                                                                   #
+#####################################################################################################
+## Saving Archive file of GID_Thesaurus up to TODAY file 
+## Constructs the folder path
+folderpath <- paste(ROOTFolder, "/", CROP, "/2_DB_input_files/2_thesauri/GID_thesaurus/Thesaurus_History/", sep = "")
+   
+## Set the current working directory to the desired directory
+setwd(folderpath)
+NEWFILE <- paste(CROP, "_GID_Thesaurus_", TODAY, ".csv", sep = "")
+write.csv(GID_Thesaurus, NEWFILE, row.names = FALSE)
+
+## Saving file of updated GID_Thesaurus 
+## Constructs the folder path
+folderpath <- paste(ROOTFolder, "/", CROP, "/2_DB_input_files/2_thesauri/GID_thesaurus/", sep = "")
+
+## Set the current working directory to the desired directory
+setwd(folderpath)
+NEWFILE <- paste(CROP, "_GID_Thesaurus.csv", sep = "")
+write.csv(GID_Thesaurus, NEWFILE, row.names = FALSE)
+
+## Saving file of possible matches for the GID_Thesaurus 
+if(ncol(partialMatch) > 3){
+  ## Constructs the folder path
+folderpath <- paste(ROOTFolder, "/", CROP, "/2_DB_input_files/2_thesauri/GID_thesaurus/Thesaurus_Updates/", sep = "")
+
+  ## Set the current working directory to the desired directory
+  setwd(folderpath)
+  NEWFILE <- paste(CROP, "_id.Raw_Partial_Match_Table_", contributor, ".csv", sep = "")
+  write.csv(partialMatch, NEWFILE, row.names = FALSE)
+}
