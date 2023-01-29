@@ -25,4 +25,8 @@ These sid.Raw (for SNP) files are also flat files (.csv) with the following fiel
 2. sid.Syn - Extra passport information; other names or identifiers that the sid.Raw is known by
 3. sid.Plain - plain text identifier of the sid.Raw or sid.Syn, using only lower case letters and numbers of the English alphabet and no special characters or
 spaces.
-4. 
+4. Chromosome - Chromosome number of the organism
+5. Position - physical position (bp) on the chromosome
+6. Array - Which array the SNP is originally located
+7. contrib - The contributor of the file
+8. file_name - The name of the file
